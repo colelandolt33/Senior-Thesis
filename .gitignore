@@ -8,5 +8,7 @@
 /onlineExperiment/client/build
 /onlineExperiment/client/node_modules
 /onlineExperiment/client/.DS_Store
+/onlineExperiment/package-lock/.DS_Store
+/onlineExperiment/package/.DS_Store
 /onlineExperiment/server/node_modules
 /onlineExperiment/server/.DS_Store
