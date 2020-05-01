@@ -1,0 +1,35 @@
+.DiscoverWeekly {
+  width: 30%;
+  height: 950px;
+  overflow-y: scroll;
+  padding: .88rem;
+  background-color: rgba(6, 51, 100, 0.7);
+  box-shadow: 0 4px 2px 2px #000000;
+}
+
+.Playlist-upload {
+  cursor: pointer;
+  width: 10rem;
+  padding: .77rem 0;
+  border-radius: 54px;
+  border-width: 0px;
+  margin-top: 1.27rem;
+  background-color: #32CD32;
+  text-align: center;
+  font-size: .83rem;
+  transition: background-color .25s;
+  color: #fff;
+  font-weight: 500;
+}
+
+::-webkit-scrollbar {
+    width: 0px;
+    background: transparent;
+}
+
+@media only screen and (max-width: 1020px) {
+  .DiscoveryWeekly {
+    width: 90%;
+    margin-bottom: 2rem;
+  }
+}

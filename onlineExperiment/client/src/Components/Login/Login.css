@@ -1,0 +1,57 @@
+.Login {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.Intro {
+  display: flex;
+  flex-direction: column;
+  align-items: justify;
+  width: 700px;
+  margin-top: 50px;
+  margin-right: 50px;
+  padding: 2.5rem .88rem;
+  background-color: rgba(6, 51, 100, 0.7);
+  box-shadow: 0 4px 2px 2px #000000;
+}
+
+.Intro h2 {
+  padding-bottom: 10px;
+  line-height: 40px;
+}
+
+.Intro p {
+  padding-bottom: 10px;
+  line-height: 25px;
+}
+
+.Intro strong {
+  font-weight: bold;
+  color: #32CD32;
+}
+
+.Image {
+  align-self: center;
+  width: 400px;
+  padding-bottom: 10px;
+}
+
+.Button {
+  cursor: pointer;
+  align-self: center;
+  width: 8.11rem;
+  padding: .77rem 0;
+  border-radius: 54px;
+  background-color: #32CD32;
+  text-align: center;
+  font-size: .833rem;
+  transition: background-color .25s;
+  border: 0px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.Button:hover {
+  background-color: rgba(0, 51, 0, 0.7);
+}
