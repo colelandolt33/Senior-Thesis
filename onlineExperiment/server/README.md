@@ -1,4 +1,4 @@
-# Spotify Accounts Authentication Examples
+# Spotify Authentication Flow
 
 This project utilizes the Authorization Code OAuth 2.0 flow for [authenticating against the Spotify Web API](https://developer.spotify.com/web-api/authorization-guide/).
 
