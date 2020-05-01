@@ -7,9 +7,9 @@ var express = require('express'),
     fs = require('fs'),
     url = require('url');
 
-var client_id = '7dcb5d982af840bfadbd511932e3f632';
-var client_secret = '42142d011e7b4ab8824547548c4cbe94';
-var redirect_uri = 'http://ec2-18-217-96-83.us-east-2.compute.amazonaws.com:8888/callback';
+var client_id = 'client_id';
+var client_secret = `client_secret`;
+var redirect_uri = 'redirect_uri';
 
 /**
  * Generates a random string containing numbers and letters

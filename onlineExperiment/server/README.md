@@ -1,12 +1,6 @@
 # Spotify Accounts Authentication Examples
 
-This project contains basic demos showing the different OAuth 2.0 flows for [authenticating against the Spotify Web API](https://developer.spotify.com/web-api/authorization-guide/).
-
-These examples cover:
-
-* Authorization Code flow
-* Client Credentials flow
-* Implicit Grant flow
+This project utilizes the Authorization Code OAuth 2.0 flow for [authenticating against the Spotify Web API](https://developer.spotify.com/web-api/authorization-guide/).
 
 ## Installation
 
@@ -26,8 +20,8 @@ To do so, go to [your Spotify for Developers Dashboard](https://beta.developer.s
 
 Once you have created your app, replace the `client_id`, `redirect_uri` and `client_secret` in the examples with the ones you get from My Applications.
 
-## Running the examples
-In order to run the different examples, open the folder with the name of the flow you want to try out, and run its `app.js` file. For instance, to run the Authorization Code example do:
+## Running the code
+In order to host a local version of the application, navigate into the authorization_code folder and run its `app.js` file.
 
     $ cd authorization_code
     $ node app.js
