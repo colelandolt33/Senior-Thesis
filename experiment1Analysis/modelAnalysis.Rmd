@@ -1,0 +1,412 @@
+---
+title: "Model"
+author: "Cole Landolt"
+date: "4/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggthemes)
+library(lsa)
+library(svMisc)
+```
+
+# Miniature Subset of MSSD 
+
+Upload & Clean Listening Log
+```{r, output=FALSE}
+# upload session logs
+test.log <- read.csv('mssd/mini/log_mini.csv') %>%
+  # filter for premium users
+  filter(premium == "true") %>%
+  rename(track_id = track_id_clean,
+         is_shuffle = hist_user_behavior_is_shuffle,
+         reason_start = hist_user_behavior_reason_start,
+         reason_end = hist_user_behavior_reason_end) %>%
+  mutate(skip_1 = skip_1 == "true",
+         skip_2 = skip_2 == "true",
+         skip_3 = skip_3 == "true",
+         not_skipped = not_skipped == "true",
+         skipped = TRUE,
+         context_switch = context_switch == "true",
+         is_shuffle = is_shuffle == "true") %>%
+  select(session_id, track_id, skip_1, skip_2, skip_3, not_skipped,
+         skipped, context_switch, context_type, is_shuffle)
+
+# clean skip columns
+for (i in 1:nrow(test.log)+1) {
+  
+  # progress check
+  progress(floor(i/(nrow(test.log)+1)*100))
+  if(i == nrow(test.log)+1) {
+    cat("Done!\n")
+    break
+  }
+  
+  if(test.log$skip_3[i] && test.log$skip_2[i]) {test.log$skip_3[i] = FALSE}
+  if(test.log$skip_2[i] && test.log$skip_1[i]) {test.log$skip_2[i] = FALSE}
+  test.log$skipped[i] = case_when(test.log$skip_1[i] ~ TRUE, test.log$skip_2[i] ~ TRUE,
+                                  test.log$skip_3[i] ~ FALSE, test.log$not_skipped[i] ~ FALSE)
+}
+```
+
+## Visualize Distribution of Context Types
+
+calculate the proportion of each context in the dataset
+```{r}
+contexts <- unique(test.log$context_type)
+context.proportions <- array()
+for (i in 0:length(contexts)) {
+  context.proportions[i] <- sum(test.log$context_type==contexts[i])/nrow(test.log)
+}
+
+context.data <- data_frame(contexts = contexts, proportions = context.proportions)
+context.data <- mutate(context.data, contexts = reorder(contexts, -proportions),
+                       prop = proportions / sum(context.data$proportions) *100,
+                       ypos = cumsum(prop)- 0.5*prop)
+```
+
+Pie chart of the proportions of listening contexts
+```{r}
+plot1 <- ggplot(context.data, aes(x = "", y = proportions, fill=contexts)) +
+  geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) +
+  scale_fill_discrete(name="Context Types") + theme_void()
+plot1
+
+# Save PNG
+png("ContextDistPie.png")
+print(plot1)
+dev.off()
+```
+
+Bar graph of the proportions of listening contexts
+```{r}
+plot2 <- ggplot(context.data, aes(x = reorder(contexts, -proportions), y = proportions)) +
+  geom_col() + theme_stata() + ylim(0, 0.5) + labs(x = "Context Types", y = "Proportion")
+  #scale_x_discrete(labels=c("User Collection", "Catalog", "Editorial", "Radio", "Personalized", "Top Charts"))
+plot2
+
+# Save PNG
+png("ContextDistBar.png")
+print(plot2)
+dev.off()
+```
+
+Upload & Normalize Track Features
+```{r, output=FALSE}
+# upload track features
+track.features <- read.csv('mssd/mini/tf_mini.csv') %>%
+  select(track_id, beat_strength, bounciness, danceability, 
+         energy, mechanism, organism, tempo, valence, 
+         acoustic_vector_0, acoustic_vector_1, acoustic_vector_2, acoustic_vector_3, 
+         acoustic_vector_4, acoustic_vector_5, acoustic_vector_6, acoustic_vector_7) %>%
+  # normalize track features
+  mutate(norm_beat_strength = (beat_strength - mean(beat_strength)) / sd(beat_strength)) %>%
+  mutate(norm_bounciness = (bounciness - mean(bounciness)) / sd(bounciness)) %>%
+  mutate(norm_danceability = (danceability - mean(danceability)) / sd(danceability)) %>%
+  mutate(norm_energy = (energy - mean(energy)) / sd(energy)) %>%
+  mutate(norm_mechanism = (mechanism - mean(mechanism)) / sd(mechanism)) %>%
+  mutate(norm_organism = (organism - mean(organism)) / sd(organism)) %>%
+  mutate(norm_tempo = (tempo - mean(tempo)) / sd(tempo)) %>%
+  mutate(norm_valence = (valence - mean(valence)) / sd(valence)) %>%
+  mutate(norm_acoustic_vector_0 = (acoustic_vector_0 - mean(acoustic_vector_0)) / sd(acoustic_vector_0)) %>%
+  mutate(norm_acoustic_vector_1 = (acoustic_vector_1 - mean(acoustic_vector_1)) / sd(acoustic_vector_1)) %>%
+  mutate(norm_acoustic_vector_2 = (acoustic_vector_2 - mean(acoustic_vector_2)) / sd(acoustic_vector_2)) %>%
+  mutate(norm_acoustic_vector_3 = (acoustic_vector_3 - mean(acoustic_vector_3)) / sd(acoustic_vector_3)) %>%
+  mutate(norm_acoustic_vector_4 = (acoustic_vector_4 - mean(acoustic_vector_4)) / sd(acoustic_vector_4)) %>%
+  mutate(norm_acoustic_vector_5 = (acoustic_vector_5 - mean(acoustic_vector_5)) / sd(acoustic_vector_5)) %>%
+  mutate(norm_acoustic_vector_6 = (acoustic_vector_6 - mean(acoustic_vector_6)) / sd(acoustic_vector_6)) %>%
+  mutate(norm_acoustic_vector_7 = (acoustic_vector_7 - mean(acoustic_vector_7)) / sd(acoustic_vector_7)) %>%
+  mutate(feature_similarity = 0, norm_feature_similarity = 0, factor_similarity = 0, norm_factor_similarity = 0)
+```
+
+Join Datasets
+```{r}
+test.data <- left_join(test.log, track.features, by="track_id") %>%
+  filter(!is.na(skipped), context_type %in% c("editorial_playlist", "personalized_playlist"))
+
+write.csv(test.data, "data_cleaned.csv")
+```
+
+## Visualize Distribution of Skips
+
+Calculate the proportion of each skip_type in the dataset
+```{r}
+skip.data <- data_frame(types = c("skip_1", "skip_2", "skip_3", "not_skipped"),
+                        proportions = c(sum(test.data$skip_1)/nrow(test.data),
+                                        sum(test.data$skip_2)/nrow(test.data),
+                                        sum(test.data$skip_3)/nrow(test.data),
+                                        sum(test.data$not_skipped)/nrow(test.data)))
+skip.data$types <- factor(skip.data$types, levels = skip.data$types)
+
+```
+
+Pie chart of the proportions of skip types from all context types
+```{r}
+plot3 <- ggplot(skip.data, aes(x = "", y = proportions, fill = types)) +
+  geom_bar(stat="identity", width=1, color="white") + coord_polar("y", start=0) +
+  scale_fill_discrete(name="Skip Types") + theme_void()
+plot3
+
+# Save PNG
+png("SkipDistPie.png")
+print(plot3)
+dev.off()
+```
+
+Bar graph of the proportions of skip types from all context types
+```{r}
+plot4 <- ggplot(skip.data, aes(x = types, y = proportions)) +
+  geom_col() + theme_stata() + ylim(0, 0.5) + labs(x = "Skip Types", y = "Proportion")
+plot4
+
+# Save PNG
+png("SkipDistBar.png")
+print(plot4)
+dev.off()
+```
+
+# Test Model
+
+Calculate similarity of songs within sessions
+```{r}
+session.names <- unique(test.data$session_id)
+similarity.data <- data.frame()
+for(i in 1:(length(session.names)+1)) {
+  # progress check
+  progress(floor(i/(length(session.names)+1)*100))
+  if(i == (length(session.names)+1)) {
+    cat("Done!\n")
+    break
+  }
+  
+  # individuate each session
+  session <- test.data %>%
+    filter(session_id == session.names [i]) %>%
+    select(skip_1, skip_2, skip_3, not_skipped, skipped, context_type, is_shuffle, 
+           beat_strength, bounciness, danceability, energy, mechanism, organism, tempo, valence,
+           norm_beat_strength, norm_bounciness, norm_danceability, norm_energy,
+           norm_mechanism, norm_organism, norm_tempo, norm_valence,
+           acoustic_vector_0, acoustic_vector_1, acoustic_vector_2, acoustic_vector_3,
+           acoustic_vector_4, acoustic_vector_5, acoustic_vector_6, acoustic_vector_7,
+           norm_acoustic_vector_0, norm_acoustic_vector_1, norm_acoustic_vector_2, norm_acoustic_vector_3, 
+           norm_acoustic_vector_4, norm_acoustic_vector_5, norm_acoustic_vector_6, norm_acoustic_vector_7,
+           feature_similarity, norm_feature_similarity, factor_similarity, norm_factor_similarity)
+  
+  # if the session has different contexts, skip to the next session
+  if(length(unique(session$context_type)) > 1) next
+  # if the session has no skips, skip to next session
+  if(any(session$skipped) == F) next
+  # if the session has all skips, skip to next session
+  if(any(session$skipped[-nrow(session)] == F) == F) next
+  # ensure the first song in a session isn't skipped
+  while(session$skipped[1]) {
+    session <- session[-1,]
+  }
+  
+  # calculate song similarity
+  not.skipped <- session[1,3:(ncol(session)-3)]
+  for(j in 2:(nrow(session))) {
+      
+    # identify new song
+    new.song <- session[j,3:(ncol(session)-3)]
+      
+    # feature similarity model
+    old.fs <- not.skipped %>%
+      select(beat_strength, bounciness, danceability, energy, mechanism, organism, valence)
+    new.fs <- new.song %>%
+      select(beat_strength, bounciness, danceability, energy, mechanism, organism, valence)
+    session$feature_similarity[j] = cosine(colMeans(old.fs), as.numeric(new.fs))
+    
+    # normalized feature similarity model
+    old.nfs <- not.skipped %>%
+      select(norm_beat_strength, norm_bounciness, norm_danceability, norm_energy,
+             norm_mechanism, norm_organism, norm_tempo, norm_valence)
+    new.nfs <- new.song %>%
+      select(norm_beat_strength, norm_bounciness, norm_danceability, norm_energy,
+             norm_mechanism, norm_organism, norm_tempo, norm_valence)
+    session$norm_feature_similarity[j] = cosine(colMeans(old.nfs), as.numeric(new.nfs))
+     
+    # factor similarity
+    old.lf <- not.skipped %>%
+      select(acoustic_vector_0, acoustic_vector_1, acoustic_vector_2, acoustic_vector_3, 
+             acoustic_vector_4, acoustic_vector_5, acoustic_vector_6, acoustic_vector_7)
+    new.lf <- new.song %>%
+      select(acoustic_vector_0, acoustic_vector_1, acoustic_vector_2, acoustic_vector_3, 
+             acoustic_vector_4, acoustic_vector_5, acoustic_vector_6, acoustic_vector_7)
+    session$factor_similarity[j] = cosine(colMeans(old.lf), as.numeric(new.lf))
+    
+    # factor similarity
+    old.nlf <- not.skipped %>%
+      select(norm_acoustic_vector_0, norm_acoustic_vector_1, norm_acoustic_vector_2, norm_acoustic_vector_3, 
+             norm_acoustic_vector_4, norm_acoustic_vector_5, norm_acoustic_vector_6, norm_acoustic_vector_7)
+    new.nlf <- new.song %>%
+      select(norm_acoustic_vector_0, norm_acoustic_vector_1, norm_acoustic_vector_2, norm_acoustic_vector_3, 
+             norm_acoustic_vector_4, norm_acoustic_vector_5, norm_acoustic_vector_6, norm_acoustic_vector_7)
+    session$norm_factor_similarity[j] = cosine(colMeans(old.nlf), as.numeric(new.nlf))
+      
+    # if song isn't skipped, add it to the not.skipped data frame
+    if (session$skipped[j] == FALSE) {
+      not.skipped <- rbind(not.skipped, session[j,3:(ncol(session)-3)])
+    }
+  }
+  # add similarity calculations to dataset
+  session <- session[-1,]
+  similarity.data <- rbind(similarity.data, session %>% select(skip_1, skip_2, skip_3, not_skipped, context_type, skipped,
+                                                   feature_similarity, norm_feature_similarity,
+                                                   factor_similarity, norm_factor_similarity))
+}
+
+similarity.data <- mutate(similarity.data, skipped = case_when(skipped ~ 1,
+                                                   !skipped ~ 0))
+write.csv(similarity.data, "song_similarity_data.csv")
+
+editorial.data <- similarity.data %>%
+  filter(context_type == "editorial_playlist")
+dw.data <- similarity.data %>%
+  filter(context_type == "personalized_playlist")
+```
+
+## Analyze Predictions for Only Discover Weekly Playlists
+
+Predict likelihood of skip based on normalized feature similarity
+```{r}
+plot5 <- ggplot(dw.data, aes(x = norm_feature_similarity)) + geom_histogram()
+plot5
+
+# Save PNG
+png("dwNormFeatureSimilarityDist.png")
+print(plot5)
+dev.off()
+
+plot6 <- ggplot(dw.data, aes(x=norm_feature_similarity, y=skipped)) + 
+  geom_smooth(color="#25C12C") + ylim(0, 1) + theme_stata() +
+  labs(title="Normalized Audio Features Model", x="Song Similarity", y="Skip Likelihood")
+plot6
+
+# Save PNG
+png("dwNormFeatureSimilarityModel.png")
+print(plot6)
+dev.off()
+
+model1 <- loess(skipped~norm_feature_similarity, data = dw.data, span = 0.75)
+summary(model1)
+
+ggplot(dw.data, aes(x = model1$fitted, y = model1$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(dw.data, aes(sample = model1$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+```
+
+Predict likelihood of skip based on latent factor similarity
+```{r}
+plot7 <- ggplot(dw.data, aes(x = factor_similarity)) + geom_histogram()
+plot7
+
+# Save PNG
+png("dwFactorSimilarityDist.png")
+print(plot7)
+dev.off()
+
+plot8 <- ggplot(dw.data, aes(x=factor_similarity, y=skipped)) + 
+  geom_smooth(color="#25C12C") + ylim(0, 1) + theme_stata() +
+  labs(title="Latent Factors Model", x="Song Similarity", y="Skip Likelihood")
+plot8
+
+# Save PNG
+png("dwFactorSimilarityModel.png")
+print(plot8)
+dev.off()
+
+model2 <- loess(skipped~factor_similarity, data = dw.data, span = 0.75)
+summary(model2)
+
+ggplot(dw.data, aes(x = model2$fitted, y = model2$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(dw.data, aes(sample = model2$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+```
+
+## Analyze Predictions for Editorial Playlists
+
+Predict likelihood of skip based on normalized feature similarity
+```{r}
+plot11 <- ggplot(editorial.data, aes(x = norm_feature_similarity)) + geom_histogram()
+plot11
+
+# Save PNG
+png("EditorialNormFeatureSimilarityDist.png")
+print(plot11)
+dev.off()
+
+plot12 <- ggplot(editorial.data, aes(x=norm_feature_similarity, y=skipped)) + 
+  geom_smooth(color="#25C12C") + ylim(0, 1) + theme_stata() +
+  labs(title="Normalized Audio Features Model", x="Song Similarity", y="Skip Likelihood")
+plot12
+
+# Save PNG
+png("EditorialNormFeatureSimilarityModel.png")
+print(plot12)
+dev.off()
+
+model3 <- loess(skipped~norm_feature_similarity, data = editorial.data, span = 0.75)
+summary(model3)
+
+ggplot(editorial.data, aes(x = model3$fitted, y = model3$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(editorial.data, aes(sample = model3$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+```
+
+Predict likelihood of skip based on latent factor similarity
+```{r}
+plot13 <- ggplot(editorial.data, aes(x = factor_similarity)) + geom_histogram()
+plot13
+
+# Save PNG
+png("EditorialFactorSimilarityDist.png")
+print(plot13)
+dev.off()
+
+plot14 <- ggplot(editorial.data, aes(x=factor_similarity, y=skipped)) + 
+  geom_smooth(color="#25C12C") + ylim(0, 1) + theme_stata() +
+  labs(title="Latent Factors Model", x="Song Similarity", y="Skip 1 Likelihood")
+plot14
+
+# Save PNG
+png("EditorialFactorSimilarityModel.png")
+print(plot14)
+dev.off()
+
+model4 <- loess(skipped~factor_similarity, data = editorial.data, span = 0.75)
+summary(model4)
+
+ggplot(editorial.data, aes(x = model4$fitted, y = model4$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(editorial.data, aes(sample = model4$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+```
+
+Model Comparison
+```{r}
+anova(model1, model2)
+
+anova(model3, model4)
+
+```

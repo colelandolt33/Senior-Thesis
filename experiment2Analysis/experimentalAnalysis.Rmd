@@ -1,0 +1,253 @@
+---
+title: "Experimental Analysis"
+author: "Cole Landolt"
+date: "4/15/2020"
+output: html_document
+---
+
+```{r setup, message=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include=FALSE, output=FALSE}
+library(jsonlite)
+library(tidyverse)
+library(stringi)
+library(mosaic)
+library(readr)
+library(dplyr)
+library(ggplot2)
+library(ggthemes)
+library(lsa)
+library(GLDEX)
+```
+
+```{r message=FALSE, warning=FALSE, output=FALSE}
+pre_survey <- read.csv('experimentData/pre-survey.csv')
+post_survey <- read.csv('experimentData/post-survey.csv')
+subject.pool <- list.dirs('experimentData', recursive = FALSE  , full.names = FALSE)[-c(1,12)]
+experiment.data <- data_frame()
+for(participant in 1:length(subject.pool)) {
+  
+  # load participant data
+  folder <- paste0("experimentData/", subject.pool[participant], collapse = "")
+  files <- list.files(folder, pattern = '*.txt', full.names = TRUE)
+  recommendations <- stream_in(file(files[1], open = "rt")) %>%
+    mutate(participant = stri_rand_strings(1, 10, pattern = "[A-Za-z0-9]"))
+  raw_timeline <- stream_in(file(files[2], open = "rt"))
+  
+  # trim dataset
+  raw_timeline$time_stamp[nrow(raw_timeline)] = raw_timeline$time_start[nrow(raw_timeline)]
+  timeline <- raw_timeline %>%
+    filter(type == "play", !is.na(time_end)) %>%
+    select(time_stamp, id, artist, duration_ms, progress_ms)
+  
+  # add new variables
+  timeline <- mutate(timeline, 
+                     percent_listened = progress_ms / duration_ms,
+                     log_percent_listened = log(percent_listened),
+                     sqrt_percent_listened = sqrt(percent_listened),
+                     on_dw = id %in% recommendations$id,
+                     song_saved = id %in% (raw_timeline %>%
+                                             filter(type == "save",
+                                                    !id %in% (raw_timeline %>%
+                                                                filter(type == "unsave") %>%
+                                                                select(id))[,1]) %>% select(id))[,1],
+                     added_to_playlist = id %in% (raw_timeline %>%
+                                                    filter(type == "add") %>%
+                                                    select(id))[,1],
+                     artist_searched = F,
+                     other_songs_by_artist = 0)
+  # clean data
+  for (i in 1:nrow(timeline)) {
+    # update percent_listened
+    if(timeline$percent_listened[i] == 0) {
+      timeline$progress_ms[i] = timeline$duration_ms[i]
+      timeline$percent_listened[i] = 1.0
+    }
+    # update artist_searched 
+    timeline$artist_searched[i] = any(c(timeline$artist[i], tolower(timeline$artist[i])) %in% 
+                                        (raw_timeline %>% filter(type == "search") %>% select(artist))[,1])
+    # update other_songs_by_artist
+    num_songs = 0
+    not_on_dw = (timeline %>% filter(!on_dw, added_to_playlist) %>% select(artist))[,1]
+    if(length(not_on_dw) > 0) {
+      for (j in 1:length(not_on_dw)) {
+        if (timeline$artist[i] == not_on_dw[j]) {
+          num_songs = num_songs + 1
+        }
+      }
+    }
+    timeline$other_songs_by_artist[i] = num_songs
+  }
+  
+  # join recommendations with timeline data
+  participant.data <- left_join(recommendations, timeline, by=c("id", "artist", "duration_ms")) %>%
+    filter(!is.na(time_stamp))#, progress_ms != 0)
+  
+  # add to experiment data
+  experiment.data <- rbind(experiment.data, participant.data)
+  
+}
+# normalize track features
+experiment.data <- experiment.data %>%
+  mutate(norm_danceability = (danceability - mean(danceability)) / sd(danceability)) %>%
+  mutate(norm_energy = (energy - mean(energy)) / sd(energy)) %>%
+  mutate(norm_loudness = (loudness - mean(loudness)) / sd(loudness)) %>%
+  mutate(norm_speechiness = (speechiness - mean(speechiness)) / sd(speechiness)) %>%
+  mutate(norm_instrumentalness = (instrumentalness - mean(instrumentalness)) / sd(instrumentalness)) %>%
+  mutate(norm_liveness = (liveness - mean(liveness)) / sd(liveness)) %>%
+  mutate(norm_valence = (valence - mean(valence)) / sd(valence)) %>%
+  mutate(norm_tempo = (tempo - mean(tempo)) / sd(tempo))
+
+```
+
+```{r warning=FALSE}
+data <- data_frame()
+for(i in 1:length(unique(experiment.data$participant))) {
+  
+  # create dataset for each participant
+  participant.data <- experiment.data %>%
+    filter(participant == unique(experiment.data$participant)[i]) %>%
+    mutate(feature_similarity=0, normalized_feature_similarity=0)
+  
+  # calculate song similarities
+  for(j in 1:(nrow(participant.data))) {
+    
+    # identify new song
+    song <- participant.data[j,3:(ncol(participant.data)-2)]
+    
+    # filter out new song from other songs added to playlist
+    others <- participant.data[-j, 3:(ncol(participant.data)-2)] 
+    others <- others %>% filter(added_to_playlist==TRUE)
+      
+    # feature similarity
+    others.fs1 <- others %>%
+      select(danceability, energy, loudness, speechiness, instrumentalness, liveness, valence, tempo)
+    song.fs1 <- song %>%
+      select(danceability, energy, loudness, speechiness, instrumentalness, liveness, valence, tempo)
+    participant.data$feature_similarity[j] = cosine(colMeans(others.fs1), as.numeric(song.fs1))
+    
+    # normalized feature similarity
+    others.fs2 <- others %>%
+      select(norm_danceability, norm_energy, norm_loudness, norm_speechiness,
+             norm_instrumentalness, norm_liveness, norm_valence, norm_tempo)
+    song.fs2 <- song %>%
+      select(norm_danceability, norm_energy, norm_loudness, norm_speechiness,
+             norm_instrumentalness, norm_liveness, norm_valence, norm_tempo)
+    participant.data$normalized_feature_similarity[j] = cosine(colMeans(others.fs2), as.numeric(song.fs2))
+  }
+  # add similarity calculations to dataset
+  data <- rbind(data, participant.data)
+}
+experiment.data <- data
+write.csv(experiment.data, "experiment_data_cleaned.csv")
+```
+
+## Summary Statistics and Graphs
+
+Percent Listened
+```{r warning=FALSE}
+listening_stats <- experiment.data %>%
+  group_by(added_to_playlist) %>%
+  summarize(n = n(),
+            Mean=mean(percent_listened),
+            Median=median(percent_listened),
+            SD=sd(percent_listened))
+
+print(listening_stats)
+
+plot1 <- ggplot(experiment.data, aes(x = percent_listened)) +
+  geom_histogram(binwidth = 0.02) + theme_stata()
+plot1
+
+# Save PNG
+png("ListenedDist.png")
+print(plot1)
+dev.off()
+
+plot2 <- ggplot(experiment.data %>% mutate(added = case_when(added_to_playlist == T ~ 1, added_to_playlist == F ~ 0)),
+       aes(x = percent_listened, y = added)) + theme_stata() +
+  geom_point(size=0.5) + geom_jitter(height = 0.03) + geom_smooth() +
+  geom_hline(aes(yintercept = prop(added_to_playlist)), color="red") +
+  labs(title="Percent Listened Model", x="Percent Listened to Song", y="Likelihood of Adding to Playlist")
+plot2
+
+# Save PNG
+png("Added~Listened.png")
+print(plot2)
+dev.off()
+```
+
+Normalized Feature Similarity
+```{r}
+normalized_similarity_stats <- experiment.data %>%
+  group_by(added_to_playlist) %>%
+  summarize(n = n(),
+            Mean_Normalized_Similarity=mean(normalized_feature_similarity),
+            Median_Normalized_Similarity=median(normalized_feature_similarity),
+            SD_Norm_Similarity=sd(normalized_feature_similarity))
+print(normalized_similarity_stats)
+
+plot5 <- ggplot(experiment.data, aes(x = normalized_feature_similarity, fill = added_to_playlist)) + 
+  geom_histogram(binwidth = 0.05) + theme_stata()
+plot5
+
+# Save PNG
+png("NormSimilarityDist.png")
+print(plot5)
+dev.off()
+
+experiment.data <- experiment.data %>% 
+  mutate(add_odds = added_to_playlist/(1-added_to_playlist))
+
+glm02 <- glm(added_to_playlist ~ normalized_feature_similarity, data = experiment.data)
+summary(glm02)
+
+plot6 <- ggplot(experiment.data %>% mutate(added = case_when(added_to_playlist == T ~ 1, added_to_playlist == F ~ 0)),
+       aes(x = normalized_feature_similarity, y = added)) + theme_stata() +
+  geom_point(size=0.5) + geom_jitter(height = 0.03) + stat_smooth(span = 0.75) +
+  geom_hline(aes(yintercept = prop(added_to_playlist)), color="red") +
+  xlim(c(-1, 1)) + scale_y_continuous(breaks = c(0.0, 0.25, 0.5, 0.75, 1.0)) +
+  labs(title="Normalized Audio Features Model", x="Song Similarity", y="Likelihood of Adding to Playlist")
+plot6
+
+# Save PNG
+png("Added~NormSimilarity.png")
+print(plot6)
+dev.off()
+```
+
+```{r}
+model1 <- loess(added_to_playlist~percent_listened, data = experiment.data, span = 0.75)
+summary(model1)
+
+ggplot(experiment.data, aes(x = model1$fitted, y = model1$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(experiment.data, aes(sample = model1$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+
+model2 <- loess(added_to_playlist~normalized_feature_similarity, data = experiment.data, span = 0.75)
+summary(model2)
+
+ggplot(experiment.data, aes(x = model2$fitted, y = model2$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(experiment.data, aes(sample = model2$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+
+model3 <- loess(added_to_playlist~normalized_feature_similarity+percent_listened, data = experiment.data, span = 0.75)
+summary(model3)
+
+ggplot(experiment.data, aes(x = model3$fitted, y = model3$res)) + 
+  geom_point() + geom_hline(aes(yintercept = 0)) + 
+  labs(x = 'Fitted Values', y = 'Residuals')
+
+ggplot(experiment.data, aes(sample = model3$res)) + stat_qq() + stat_qq_line() +
+  labs(x = "Theoretical Quantiles", y = "Residuals")
+
+anova(model1, model2, model3)
+```
